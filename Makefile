@@ -1,9 +1,9 @@
-PREFIX?=/usr/X11R6
-CFLAGS?=-Os -pedantic -Wall
+CFLAGS?=-Wall -Werror -std=c++1y -g
+PKG?=`pkg-config --cflags --libs xcb`
 
 all:
-	$(CC) $(CFLAGS) -I$(PREFIX)/include tinywm.c -L$(PREFIX)/lib -lX11 -o tinywm
+	gcc $(CFLAGS) *.cc -o main $(PKG)
 
 clean:
-	rm -f tinywm
+	rm -f main *.o *.d
 
