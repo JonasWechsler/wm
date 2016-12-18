@@ -1,61 +1,24 @@
 #include <algorithm>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <xcb/xcb.h>
+#include "info.h"
+#include "log.h"
 
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
+void focus(xcb_window_t& window){
+    const uint32_t mode[1] = {XCB_STACK_MODE_ABOVE};
+    xcb_configure_window(Info::connection, window,
+                         XCB_CONFIG_WINDOW_STACK_MODE, mode);
+    xcb_set_input_focus(Info::connection, XCB_INPUT_FOCUS_POINTER_ROOT,
+            window, XCB_CURRENT_TIME);
+    xcb_flush(Info::connection);
+}
 
-struct Info {
-  static xcb_connection_t *connection;
-  static xcb_drawable_t root;
-  static xcb_screen_t *screen;
-};
-
-xcb_connection_t *Info::connection;
-xcb_drawable_t Info::root;
-xcb_screen_t *Info::screen;
-
-enum DragAction { MOVE, RESIZE, NONE };
-
-struct DragInfo {
-  static xcb_drawable_t window;
-  static DragAction action;
-};
-
-xcb_drawable_t DragInfo::window;
-DragAction DragInfo::action;
-
-#define log(msg, args...)                                                      \
-  do {                                                                         \
-    printf("[%s - %s:%d]" msg "\n", __func__, __FILE__, __LINE__, ##args);     \
-  } while (0)
-
-#define VERBOSE
-
-#ifdef VERBOSE
-#define log_verbose(msg, args...) log(msg, ##args)
-#else
-#define log_verbose(msgm args...)
-#endif
-
-#define die_no_conn(msg, args...)                                              \
-  do {                                                                         \
-    log("(EXIT)" msg, ##args);                                                 \
-    exit(1);                                                                   \
-  } while (0)
-
-#define die(msg, args...)                                                      \
-  do {                                                                         \
-    xcb_disconnect(Info::connection);                                          \
-    die_no_conn(msg, ##args);                                                  \
-  } while (0)
-
-xcb_get_geometry_reply_t *geom;
 
 void event(void) {
+    log_verbose("waiting...");
   xcb_generic_event_t *event = xcb_wait_for_event(Info::connection);
 
   log_verbose("event response %d %s", event->response_type & ~0x80,
@@ -68,18 +31,16 @@ void event(void) {
   case XCB_BUTTON_PRESS: {
     log_verbose("XCB_BUTTON_PRESS");
 
-    xcb_button_press_event_t *e = (xcb_button_press_event_t *)event;
-    DragInfo::window = e->child;
+    xcb_button_press_event_t *press_event = (xcb_button_press_event_t *)event;
+    DragInfo::window = press_event->child;
 
-    const uint32_t mode[1] = {XCB_STACK_MODE_ABOVE};
-    xcb_configure_window(Info::connection, DragInfo::window,
-                         XCB_CONFIG_WINDOW_STACK_MODE, mode);
+    focus(DragInfo::window);
 
-    geom = xcb_get_geometry_reply(
+	xcb_get_geometry_reply_t *geom = xcb_get_geometry_reply(
         Info::connection, xcb_get_geometry(Info::connection, DragInfo::window),
         NULL);
 
-    if (e->detail == 1) {
+    if (press_event->detail == 1) {
       DragInfo::action = MOVE;
       xcb_warp_pointer(Info::connection, XCB_NONE, DragInfo::window, 0, 0, 0, 0,
                        1, 1);
@@ -103,11 +64,9 @@ void event(void) {
     if (DragInfo::action == NONE)
       break;
 
-    xcb_query_pointer_reply_t *pointer;
-    pointer = xcb_query_pointer_reply(
+    xcb_query_pointer_reply_t *pointer = xcb_query_pointer_reply(
         Info::connection, xcb_query_pointer(Info::connection, Info::root), 0);
-
-    auto geom = xcb_get_geometry_reply(
+	xcb_get_geometry_reply_t *geom = xcb_get_geometry_reply(
         Info::connection, xcb_get_geometry(Info::connection, DragInfo::window),
         NULL);
 
@@ -136,6 +95,24 @@ void event(void) {
     xcb_ungrab_pointer(Info::connection, XCB_CURRENT_TIME);
     break;
   }
+
+  xcb_flush(Info::connection);
+}
+
+void setup_bindings(void){
+  auto mask = XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE;
+  auto asyn = XCB_GRAB_MODE_ASYNC;
+
+  xcb_grab_button(Info::connection, 0, Info::root, mask, asyn, asyn, Info::root,
+                  XCB_NONE, 1, XCB_MOD_MASK_1);
+  xcb_grab_button(Info::connection, 0, Info::root, mask, asyn, asyn, Info::root,
+                  XCB_NONE, 2, XCB_MOD_MASK_1);
+  xcb_grab_button(Info::connection, 0, Info::root, mask, asyn, asyn, Info::root,
+                  XCB_NONE, 3, XCB_MOD_MASK_1);
+
+  xcb_grab_key(Info::connection, 1, Info::root, XCB_MOD_MASK_2, XCB_NO_SYMBOL,
+               XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+
   xcb_flush(Info::connection);
 }
 
@@ -157,29 +134,7 @@ int main(void) {
       Info::screen->height_in_pixels);
   log("root window: %d", Info::screen->root);
 
-  auto mask = XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE;
-  auto asyn = XCB_GRAB_MODE_ASYNC;
-
-  // const uint32_t cwa = XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT
-  //    | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY
-  //    | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
-
-  // xcb_change_window_attributes(Info::connection, Info::root,
-  // XCB_CW_EVENT_MASK,
-  //        &cwa);
-  //
-  // Add mouse buttons 1, 2, 3
-  xcb_grab_button(Info::connection, 0, Info::root, mask, asyn, asyn, Info::root,
-                  XCB_NONE, 1, XCB_MOD_MASK_1);
-  xcb_grab_button(Info::connection, 0, Info::root, mask, asyn, asyn, Info::root,
-                  XCB_NONE, 2, XCB_MOD_MASK_1);
-  xcb_grab_button(Info::connection, 0, Info::root, mask, asyn, asyn, Info::root,
-                  XCB_NONE, 3, XCB_MOD_MASK_1);
-
-  xcb_grab_key(Info::connection, 1, Info::root, XCB_MOD_MASK_2, XCB_NO_SYMBOL,
-               XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-
-  xcb_flush(Info::connection);
+  setup_bindings();
 
   while (true)
     event();
