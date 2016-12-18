@@ -1,24 +1,22 @@
+#include "info.h"
+#include "log.h"
 #include <algorithm>
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <xcb/xcb.h>
-#include "info.h"
-#include "log.h"
 
-void focus(xcb_window_t& window){
-    const uint32_t mode[1] = {XCB_STACK_MODE_ABOVE};
-    xcb_configure_window(Info::connection, window,
-                         XCB_CONFIG_WINDOW_STACK_MODE, mode);
-    xcb_set_input_focus(Info::connection, XCB_INPUT_FOCUS_POINTER_ROOT,
-            window, XCB_CURRENT_TIME);
-    xcb_flush(Info::connection);
+void focus(xcb_window_t &window) {
+  const uint32_t mode[1] = {XCB_STACK_MODE_ABOVE};
+  xcb_configure_window(Info::connection, window, XCB_CONFIG_WINDOW_STACK_MODE,
+                       mode);
+  xcb_set_input_focus(Info::connection, XCB_INPUT_FOCUS_POINTER_ROOT, window,
+                      XCB_CURRENT_TIME);
 }
 
-
 void event(void) {
-    log_verbose("waiting...");
+  log_verbose("waiting...");
   xcb_generic_event_t *event = xcb_wait_for_event(Info::connection);
 
   log_verbose("event response %d %s", event->response_type & ~0x80,
@@ -36,7 +34,7 @@ void event(void) {
 
     focus(DragInfo::window);
 
-	xcb_get_geometry_reply_t *geom = xcb_get_geometry_reply(
+    xcb_get_geometry_reply_t *geom = xcb_get_geometry_reply(
         Info::connection, xcb_get_geometry(Info::connection, DragInfo::window),
         NULL);
 
@@ -66,7 +64,7 @@ void event(void) {
 
     xcb_query_pointer_reply_t *pointer = xcb_query_pointer_reply(
         Info::connection, xcb_query_pointer(Info::connection, Info::root), 0);
-	xcb_get_geometry_reply_t *geom = xcb_get_geometry_reply(
+    xcb_get_geometry_reply_t *geom = xcb_get_geometry_reply(
         Info::connection, xcb_get_geometry(Info::connection, DragInfo::window),
         NULL);
 
@@ -99,16 +97,13 @@ void event(void) {
   xcb_flush(Info::connection);
 }
 
-void setup_bindings(void){
-  auto mask = XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE;
-  auto asyn = XCB_GRAB_MODE_ASYNC;
-
-  xcb_grab_button(Info::connection, 0, Info::root, mask, asyn, asyn, Info::root,
-                  XCB_NONE, 1, XCB_MOD_MASK_1);
-  xcb_grab_button(Info::connection, 0, Info::root, mask, asyn, asyn, Info::root,
-                  XCB_NONE, 2, XCB_MOD_MASK_1);
-  xcb_grab_button(Info::connection, 0, Info::root, mask, asyn, asyn, Info::root,
-                  XCB_NONE, 3, XCB_MOD_MASK_1);
+void setup_bindings(void) {
+  for (int i = 1; i < 4; i++) {
+    xcb_grab_button(Info::connection, 0, Info::root,
+                    XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE,
+                    XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, Info::root,
+                    XCB_NONE, i, XCB_MOD_MASK_1);
+  }
 
   xcb_grab_key(Info::connection, 1, Info::root, XCB_MOD_MASK_2, XCB_NO_SYMBOL,
                XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
@@ -126,9 +121,7 @@ int main(void) {
   Info::screen = xcb_setup_roots_iterator(xcb_get_setup(Info::connection)).data;
 
   if (!Info::screen)
-    die("can't get Info::screen");
-
-  Info::root = Info::screen->root;
+    die("can't get screen");
 
   log("screen size: %dx%d", Info::screen->width_in_pixels,
       Info::screen->height_in_pixels);
